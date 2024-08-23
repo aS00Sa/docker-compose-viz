@@ -1,0 +1,87 @@
+version: '3.4'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  microservice:
+    image: jhipster/jhipster-sample-app-microservice #nameko-microservice #
+    restart: always
+    deploy:
+      replicas: 1
+    depends_on:
+      - rabbitmq
+      - logstash
+
+  db:
+    image: mariadb:10.3
+    volumes:
+      - ./mysqldb_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      resources:
+        reservations:
+          memory: 128M
+        limits:
+          memory: 256M
+
+  restapi:
+    image: camunda/web-modeler-restapi:8.6.0-alpha4 #restapi #
+    restart: always
+    ports:
+      - "8000:8000"
+    deploy:
+      mode: global
+    depends_on:
+      - db
+      - microservice
+      - logstash
+
+  nginx:
+    image: nginx #ui #
+    restart: always
+    ports:
+      - "8080:80"
+    deploy:
+      replicas: 1
+    depends_on:
+      - restapi
+
+  elasticsearch:
+    image: elasticsearch:2
+    command: elasticsearch -Des.network.host=0.0.0.0
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+
+  kibana:
+    image: kibana:latest
+    build: kibana/
+    volumes:
+      - ./kibana/config/:/opt/kibana/config/
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  logstash:
+    build: logstash/
+    command: logstash -f /etc/logstash/conf.d/logstash.conf
+    image: logstash:latest
+    volumes:
+      - ./logstash/config:/etc/logstash/conf.d
+    ports:
+      - "5000:5000"
+    depends_on:
+      - elasticsearch
